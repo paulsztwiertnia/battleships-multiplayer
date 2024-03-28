@@ -11,7 +11,7 @@ let players = []
 wss.on('connection', function connection(ws) {
     if (players.length < 2 ) {
         players.push(ws);
-        console.log('Players ${players.length} connected to game');
+        console.log(`Players ${players.length} connected to game`);
         if (players.length == 2 ) {
             players.forEach((player, index) => {
                 player.send(JSON.stringify({type: "player_number", playerNumber: index + 1}));
@@ -36,6 +36,6 @@ wss.on('connection', function connection(ws) {
 });
 
 const PORT = 3000;
-server.listen(PORT, () => {
+bin.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
