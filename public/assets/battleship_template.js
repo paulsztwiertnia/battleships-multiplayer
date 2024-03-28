@@ -1,173 +1,206 @@
 document.addEventListener('DOMContentLoaded', function() { 
-    // Set up canvas and load it
-    const canvas = document.getElementById('playerCanvas');
-    const canvasEnemy = document.getElementById('enemyCanvas');
-    const ctx = canvas.getContext('2d');
-    const ctxEnemy = canvasEnemy.getContext('2d');
+    // Setup canvas for both players
+    const canvasPlayer1 = document.getElementById('playerCanvas');
+    const canvasPlayer2 = document.getElementById('enemyCanvas'); // Now represents player 2's canvas
+    const ctxPlayer1 = canvasPlayer1.getContext('2d');
+    const ctxPlayer2 = canvasPlayer2.getContext('2d');
     const gridSize = 10;
-    const cellSize = canvas.width / gridSize; // Caclulate cell size  
+    const cellSize = canvasPlayer1.width / gridSize; // Assuming both canvases are the same size
 
-    let ships = []; // Ship placement on player's board
-    let enemyShips = [[2, 2], [7, 7], [4, 9]]; // Enemy ships placement
-    let hits = []; // Array to track ship hits
-    let cpuHits = []; // Array to track ship hits
-    let cpuSankShip = 0;
-    let hitCount = 0; // Track hit count
-    let missCount = 0; // Track miss count
-    
-    let shipToPlace = false; // Flag for ship placement
-    let gameOver = false; // Flag to prevent bombing once game is over
+    let player1Ships = [];
+    let player2Ships = [];
+    let player1Attacks = [];
+    let player2Attacks = [];
+    let player1ShipHits = [];
+    let player2ShipHits = [];
+    let currentPlayer = 1; 
+    let phase = "placement"; // Game phase: placement or attack
 
-    // Logic to change colors whenever place ship button is used
+    let shipsToPlace = 3; // Number of ships each player should place
+    let shipToPlace = false; // Flag for whether the player is currently placing ships
+
+    // function to switch from ship placement to attacking phase
+    function switchToAttackPhase() {
+        phase = "attack";
+        drawBoard(ctxPlayer1, player1Ships, player1Attacks, false); // Hide player 1 ships
+        drawBoard(ctxPlayer2, player2Ships, player2Attacks, false); // Hide player 2 ships
+
+        canvasPlayer1.style.display = "block";
+        canvasPlayer2.style.display = "block";
+        canvasPlayer1.style.opacity = "1";
+        canvasPlayer2.style.opacity = "1";
+        updateGameMessage("All ships placed, player 1 starts attacking!");
+        updateUI();
+    }
+    // function to switch turns between players
+    function switchTurns() {
+        currentPlayer = currentPlayer === 1 ? 2 : 1;
+        updateUI();
+
+        if (currentPlayer == 1) {
+            updateGameMessage("Player 2's turn");
+        } else {
+            updateGameMessage("Player 1's turn");
+        }
+    }
+
+    // Update UI based on current turn and phase
+    function updateUI() {
+        if (phase === "attack") {
+            pickUpShipButton.style.display = "none";
+        }
+    }
+    // logic for picking up ship
     var pickUpShipButton = document.getElementById('shipToPlace');
     pickUpShipButton.addEventListener('click', function() {
-        shipToPlace = true;
-        pickUpShipButton.textContent = 'Place Ship';
-        pickUpShipButton.classList.add('btn-warning');
-        pickUpShipButton.classList.remove('btn-secondary');
-    });
+        if (phase !== "placement") return;
 
-    // New Game button starts new game 
+        if ((currentPlayer === 1 && player1Ships.length < shipsToPlace) || 
+            (currentPlayer === 2 && player2Ships.length < shipsToPlace)) {
+            shipToPlace = !shipToPlace; // Toggle ship placement flag
+            this.textContent = shipToPlace ? 'Cancel Ship Placement' : 'Pick Up Ship';
+            this.classList.toggle('btn-warning');
+            this.classList.toggle('btn-secondary');
+        }
+    });
+    // new game button
     var newGameButton = document.getElementById('newGame'); 
     newGameButton.addEventListener('click', function() {
         location.reload(); 
     });
-
-    // Draw player board
-    function drawBoard() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // function to draw new board
+    function drawBoard(ctx, ships, attacks, showShips) {
+        ctx.clearRect(0, 0, canvasPlayer1.width, canvasPlayer1.height);
         for (let i = 0; i < gridSize; i++) {
             for (let j = 0; j < gridSize; j++) {
                 ctx.strokeRect(i * cellSize, j * cellSize, cellSize, cellSize);
             }
         }
-        // Draw ships to show placement 
-        ships.forEach(function(ship) {
-            ctx.fillStyle = 'navy';
-            ctx.fillRect(ship[0] * cellSize, ship[1] * cellSize, cellSize, cellSize);
+        // Only draw ships during the placement phase or if explicitly told to show them
+        if (showShips) {
+            ships.forEach(function(ship) {
+                ctx.fillStyle = 'navy';
+                ctx.fillRect(ship[0] * cellSize, ship[1] * cellSize, cellSize, cellSize);
+            });
+        }
+        // Draw attacks
+        attacks.forEach(function(attack) {
+            const hit = ships.some(ship => ship[0] === attack[0] && ship[1] === attack[1]);
+            ctx.fillStyle = hit ? 'red' : 'white';
+            ctx.beginPath();
+            ctx.arc(attack[0] * cellSize + cellSize / 2, attack[1] * cellSize + cellSize / 2, cellSize / 4, 0, 2 * Math.PI); // draw a circle where user attacks
+            ctx.fill();
         });
     }
 
-    // Draw enemy board
-    function drawEnemyBoard(){
-        ctxEnemy.clearRect(0, 0, canvasEnemy.width, canvasEnemy.height);
-        for (let i = 0; i < gridSize; i++) {
-            for (let j = 0; j < gridSize; j++) {
-                ctxEnemy.strokeRect(i * cellSize, j * cellSize, cellSize, cellSize);
-            }
-        }
-    }
-
-    // Function to place ships
+    // Event listener for ship placement
     function placeShip(event) {
-        if (!shipToPlace) {
-            return; // If shipToPlace flag is false, user is unable to place ships
-        }
+        if (!shipToPlace || phase !== "placement") return;
     
-        const rect = canvas.getBoundingClientRect();
+        const rect = currentPlayer === 1 ? canvasPlayer1.getBoundingClientRect() : canvasPlayer2.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
         const gridX = Math.floor(x / cellSize);
         const gridY = Math.floor(y / cellSize);
-
-        if (!ships.some(ship => ship[0] === gridX && ship[1] === gridY)) { // Check if cell is occupied by ship
-            ships.push([gridX, gridY]); // Add ship position to ships array
-            drawBoard(); // Redraw board to include added ships
-            shipToPlace = false; // Set flag to show user has stopped placing ships
-
-            // Change color of buttons and show state of Pick Up Ship button
-            pickUpShipButton.textContent = 'Pick Up Ship';
-            pickUpShipButton.classList.remove('btn-warning');
-            pickUpShipButton.classList.add('btn-secondary');
-        } else {
-            alert("You already placed a ship here!"); // If cell is occupied, alert the user a ship has already been placed there
-        }
-        if (ships.length == 3) { // If user has placed 3 ships they can begin attacking the CPU board
-            pickUpShipButton.remove(); // Remove button so user can't place anymore ships
-            alert("You may begin attacking!")
+        const currentShips = currentPlayer === 1 ? player1Ships : player2Ships;
+    
+        if (currentShips.some(ship => ship[0] === gridX && ship[1] === gridY)) {
+            alert("You already placed a ship here!");
             return;
+        }
+    
+        currentShips.push([gridX, gridY]);
+        drawBoard(currentPlayer === 1 ? ctxPlayer1 : ctxPlayer2, currentShips, currentPlayer === 1 ? player1Attacks : player2Attacks);
+    
+        // Reflect ship placement visually
+        pickUpShipButton.textContent = 'Pick Up Ship'; // Reset the button text if needed
+        pickUpShipButton.classList.remove('btn-warning');
+        pickUpShipButton.classList.add('btn-secondary');
+        shipToPlace = false; // Disable ship placement mode
+    
+        if (currentShips.length === shipsToPlace && currentPlayer === 2) {
+            // If both players have finished placing ships, prepare for the attack phase
+            switchToAttackPhase();
+        } else if (currentShips.length === shipsToPlace) {
+            // Switch turns if the current player finished placing ships
+            switchTurns();
         }
     }
+    
 
-    function playerAttack(event) {
-        if (gameOver) { // If gameOver flag is true, alert the user to start a new game
-            alert("Game Over, Start a new game."); 
-            return; 
-        }
-
-        if (shipToPlace || ships.length === 0) { // If ShipToPlace is true and ship length is zero, the user is alerted to place ships before attacking
-            alert("Place your ships before attacking the enemy!");
+    // function for attacking
+    function handleAttack(event) {
+        if (phase !== "attack") return;
+    
+        const attackingCanvas = currentPlayer === 1 ? canvasPlayer2 : canvasPlayer1;
+        const rect = attackingCanvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const gridX = Math.floor(x / cellSize);
+        const gridY = Math.floor(y / cellSize);
+        const currentAttacks = currentPlayer === 1 ? player1Attacks : player2Attacks;
+        const opponentShips = currentPlayer === 1 ? player2Ships : player1Ships;
+        const opponentShipHits = currentPlayer === 1 ? player1ShipHits : player2ShipHits;
+    
+        if (currentAttacks.some(attack => attack[0] === gridX && attack[1] === gridY)) {
+            alert("You already attacked this square!");
             return;
         }
-
-        const rect = canvasEnemy.getBoundingClientRect();
-        const x = event.clientX - rect.left; // Calculation for x coordinate
-        const y = event.clientY - rect.top; // Calculation for y coordinate
-        const gridX = Math.floor(x / cellSize); // Calculation for grid X coordinate
-        const gridY = Math.floor(y / cellSize); // Calculation for grid Y coordinate
-
-        if (hits.some(hit => hit[0] === gridX && hit[1] === gridY)) {  // logic to check if square has already been attacked
-            alert("You already attacked this square, pick a different one!");
-            return;
-        }
-
-        hits.push([gridX, gridY]); // add coordinates of attack to hits array
-
-        if (enemyShips.some(ship => ship[0] === gridX && ship[1] === gridY)) {
-            ctxEnemy.fillStyle = 'red';
-            hitCount++; // Increment hit count, make cell red if a ship is hit
-            if (hitCount === enemyShips.length) {
-                alert('Game Over, You Win!');
-                gameOver = true; // Update the game state flag
-                pickUpShipButton.classList.add('disabled'); // Disable button to place ships once game is ended
+    
+        currentAttacks.push([gridX, gridY]);
+    
+        // Check if the attack hits any of the opponent's ships
+        const hit = opponentShips.some(ship => ship[0] === gridX && ship[1] === gridY);
+        if (hit) {
+            // currentPlayer makes the hit, so record this against the opponent
+            opponentShipHits.push([gridX, gridY]); // This records a successful hit by currentPlayer
+    
+            // Check win condition based on the currentPlayer's hits on the opponent
+            if (opponentShipHits.length === shipsToPlace) {
+                // currentPlayer is the winner since they made the hits
+                document.getElementById("gameStatus").textContent = `Game over! Player ${currentPlayer} wins by sinking all ships!`;
+                gameOver = true;
+                return;
             }
-        } else {
-            ctxEnemy.fillStyle = 'grey'; // If coordinates of attack do not represent a ship, make the square grey and increment missCount by 1
-            missCount++; 
         }
-        
-        ctxEnemy.fillRect(gridX * cellSize, gridY * cellSize, cellSize, cellSize); // Show the players attack on the enemy board
-        document.getElementById('hitCount').textContent = hitCount; // Update hit count
-        document.getElementById('missCount').textContent = missCount; // Update miss count
-        
-        enemyAttack(); // Call enemy attack function after players turn is done
+    
+        drawBoard(currentPlayer === 1 ? ctxPlayer2 : ctxPlayer1, opponentShips, currentAttacks, phase === 'placement');
+        switchTurns();
+    }
+    
+
+    canvasPlayer1.addEventListener('click', function(event) {
+        if (phase === "placement" && currentPlayer === 1) {
+            placeShip(event);
+        }
+    });
+
+    canvasPlayer2.addEventListener('click', function(event) {
+        if (phase === "placement" && currentPlayer === 2) {
+            placeShip(event);
+        } else if (phase === "attack" && currentPlayer === 1) {
+            handleAttack(event);
+        }
+    });
+
+    // Separate listener for player 2's attack phase to avoid conflicts
+    canvasPlayer1.addEventListener('click', function(event) {
+        if (phase === "attack" && currentPlayer === 2) {
+            handleAttack(event);
+        }
+    });
+
+    function updateGameMessage(message) {
+        const gameMessage = document.getElementById("gameMessage");
+        gameMessage.textContent = message;
     }
 
-    function enemyAttack() {
-        if (cpuSankShip == 3) { // If CPU sanks all 3 players ships, alert the user, start a new game
-            alert("Game over, CPU wins!");
-            location.reload(); 
-        }
-    
-        let attackX = Math.floor(Math.random() * gridSize); // Random X coordinate for CPU attack
-        let attackY = Math.floor(Math.random() * gridSize); // Random Y coordinate for CPU attack
-        // Check if coordinates have already been attacked by CPU
-        if (cpuHits.some(hit => hit[0] === attackX && hit[1] === attackY)) {
-            enemyAttack(); // If coordinates have been attacked, call function again
-            return;
-        }
-    
-        let isHit = ships.some(ship => ship[0] === attackX && ship[1] === attackY); // Check coordinates of enemy attack, set it to true if attack was successful
-    
-        if (isHit) {
-            ctx.fillStyle = 'red'; // Color the square red if CPU hit
-            ctx.fillRect(attackX * cellSize, attackY * cellSize, cellSize, cellSize);
-            cpuSankShip++; // Increment array to keep track of sunken player ships
-        } else {
-            ctx.fillStyle = 'grey'; // Color the square grey if CPU missed
-            ctx.fillRect(attackX * cellSize, attackY * cellSize, cellSize, cellSize);
-
-        }
-        cpuHits.push([attackX, attackY]); // Add previous attack coordinates to cpuHits array
-    }
-
-    // function to initialize start of game
+    // Initialize the game
     function initGame() {
-        drawBoard();
-        drawEnemyBoard();
-        canvas.addEventListener('click', placeShip);
-        canvasEnemy.addEventListener('click', playerAttack);
+        drawBoard(ctxPlayer1, player1Ships, player1Attacks);
+        drawBoard(ctxPlayer2, player2Ships, player2Attacks);
     }
-    
-    initGame(); //call the function to start the game
+
+    initGame();
+    updateGameMessage("Player 2 starts by placing their ships."); // Initial message
 });
