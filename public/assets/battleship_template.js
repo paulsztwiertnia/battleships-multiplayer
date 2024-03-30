@@ -16,8 +16,67 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentPlayer = 1; 
     let phase = "placement"; // Game phase: placement or attack
 
-    let shipsToPlace = 3; // Number of ships each player should place
+    let numberOfShips = 3; // Number of ships each player should place
     let shipToPlace = false; // Flag for whether the player is currently placing ships
+
+    // Initialize the server connection
+    const socket = new WebSocket('ws://localhost:3000');
+
+    socket.onopen = function(event) {
+        console.log("Connection establish");
+    };
+
+    socket.onmessage = handleSocketMessage; 
+
+    socket.onclose = function(event) {
+        console.log("Connection closed");
+    };
+
+    function handleSocketMessage(event) { // function to handle message from server
+        if (event.data instanceof Blob) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                try {
+                    const message = JSON.parse(reader.result);
+                    processSocketMessage(message);
+                } catch (e) {
+                    console.error("Error parsing Blob message as JSON:", e);
+                }
+            };
+            reader.readAsText(event.data);
+        } else { // handle the non-Blob messages 
+            try {
+                const message = JSON.parse(event.data);
+                processSocketMessage(message);
+            } catch (e) {
+                console.error("Error parsing message as JSON:", e);
+            }
+        }
+    }
+
+    function processSocketMessage(message) { // function to process the moves from the users
+        switch (message.type) {
+            case "place_ship":
+                if (message.player !== currentPlayer) {
+                    const opponentShips = currentPlayer === 1 ? player2Ships : player1Ships;
+                    opponentShips.push(message.coordinates);
+                    
+                    
+                    const ctx = currentPlayer === 1 ? ctxPlayer2 : ctxPlayer1;
+                    drawBoard(ctx, opponentShips, currentPlayer === 1 ? player2Attacks : player1Attacks, phase === 'placement');
+                }
+                break;
+            case "player_number":
+                currentPlayer = message.playerNumber; 
+                console.log(`You are Player ${currentPlayer}`);
+                break;
+            case "start_game":
+                console.log('Game started');
+                break;
+        }
+    }
+    
+    
 
     // function to switch from ship placement to attacking phase
     function switchToAttackPhase() {
@@ -44,7 +103,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Update UI based on current turn and phase
+    // Update UI based on the turn and phase
     function updateUI() {
         if (phase === "attack") {
             pickUpShipButton.style.display = "none";
@@ -55,8 +114,8 @@ document.addEventListener('DOMContentLoaded', function() {
     pickUpShipButton.addEventListener('click', function() {
         if (phase !== "placement") return;
 
-        if ((currentPlayer === 1 && player1Ships.length < shipsToPlace) || 
-            (currentPlayer === 2 && player2Ships.length < shipsToPlace)) {
+        if ((currentPlayer === 1 && player1Ships.length < numberOfShips) || 
+            (currentPlayer === 2 && player2Ships.length < numberOfShips)) {
             shipToPlace = !shipToPlace; // Toggle ship placement flag
             this.textContent = shipToPlace ? 'Cancel Ship Placement' : 'Pick Up Ship';
             this.classList.toggle('btn-warning');
@@ -75,13 +134,6 @@ document.addEventListener('DOMContentLoaded', function() {
             for (let j = 0; j < gridSize; j++) {
                 ctx.strokeRect(i * cellSize, j * cellSize, cellSize, cellSize);
             }
-        }
-        // Only draw ships during the placement phase or if explicitly told to show them
-        if (showShips) {
-            ships.forEach(function(ship) {
-                ctx.fillStyle = 'navy';
-                ctx.fillRect(ship[0] * cellSize, ship[1] * cellSize, cellSize, cellSize);
-            });
         }
         // Draw attacks
         attacks.forEach(function(attack) {
@@ -112,16 +164,16 @@ document.addEventListener('DOMContentLoaded', function() {
         currentShips.push([gridX, gridY]);
         drawBoard(currentPlayer === 1 ? ctxPlayer1 : ctxPlayer2, currentShips, currentPlayer === 1 ? player1Attacks : player2Attacks);
     
-        // Reflect ship placement visually
+        // ship placement logic
         pickUpShipButton.textContent = 'Pick Up Ship'; // Reset the button text if needed
         pickUpShipButton.classList.remove('btn-warning');
         pickUpShipButton.classList.add('btn-secondary');
         shipToPlace = false; // Disable ship placement mode
     
-        if (currentShips.length === shipsToPlace && currentPlayer === 2) {
-            // If both players have finished placing ships, prepare for the attack phase
+        if (currentShips.length === numberOfShips && currentPlayer === 2) {
+            // If both players have finished placing ships then switch to attack phase
             switchToAttackPhase();
-        } else if (currentShips.length === shipsToPlace) {
+        } else if (currentShips.length === numberOfShips) {
             // Switch turns if the current player finished placing ships
             switchTurns();
         }
@@ -149,32 +201,26 @@ document.addEventListener('DOMContentLoaded', function() {
     
         currentAttacks.push([gridX, gridY]);
     
-        // Check if the attack hits any of the opponent's ships
+        // check if the attack hits any of the opponent's ships
         const hit = opponentShips.some(ship => ship[0] === gridX && ship[1] === gridY);
         if (hit) {
-            // currentPlayer makes the hit, so record this against the opponent
-            opponentShipHits.push([gridX, gridY]); // This records a successful hit by currentPlayer
-    
-            // Check win condition based on the currentPlayer's hits on the opponent
-            if (opponentShipHits.length === shipsToPlace) {
-                // currentPlayer is the winner since they made the hits
+            opponentShipHits.push([gridX, gridY]); 
+            if (opponentShipHits.length === numberOfShips) {
                 document.getElementById("gameStatus").textContent = `Game over! Player ${currentPlayer} wins by sinking all ships!`;
                 gameOver = true;
                 return;
             }
         }
-    
         drawBoard(currentPlayer === 1 ? ctxPlayer2 : ctxPlayer1, opponentShips, currentAttacks, phase === 'placement');
         switchTurns();
     }
-    
-
+    // listener for player1 placement
     canvasPlayer1.addEventListener('click', function(event) {
         if (phase === "placement" && currentPlayer === 1) {
             placeShip(event);
         }
     });
-
+    // listener for player 2 placement
     canvasPlayer2.addEventListener('click', function(event) {
         if (phase === "placement" && currentPlayer === 2) {
             placeShip(event);
@@ -182,14 +228,14 @@ document.addEventListener('DOMContentLoaded', function() {
             handleAttack(event);
         }
     });
-
-    // Separate listener for player 2's attack phase to avoid conflicts
+    // listener for player 1
     canvasPlayer1.addEventListener('click', function(event) {
         if (phase === "attack" && currentPlayer === 2) {
             handleAttack(event);
         }
     });
 
+    // function to update the game message info
     function updateGameMessage(message) {
         const gameMessage = document.getElementById("gameMessage");
         gameMessage.textContent = message;
